@@ -18,6 +18,30 @@ class DatabaseTransactionsTest extends DatabaseTestCase
         ]);
     }
 
+    public function testFailedRollbackCallbackDoesNotLeaveCommitCallbacksPending()
+    {
+        $ran = false;
+
+        DB::beginTransaction();
+        DB::afterCommit(function () use (&$ran) {
+            $ran = true;
+        });
+        DB::afterRollBack(fn () => throw new \RuntimeException('Rollback callback failed.'));
+
+        try {
+            DB::rollBack();
+            $this->fail('The rollback callback should throw.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Rollback callback failed.', $e->getMessage());
+        }
+
+        DB::transaction(fn () => null);
+
+        $this->assertFalse($ran);
+        $this->assertCount(0, app('db.transactions')->getPendingTransactions());
+        $this->assertCount(0, app('db.transactions')->getCommittedTransactions());
+    }
+
     public function testTransactionCallbacks()
     {
         [$firstObject, $secondObject, $thirdObject] = [
